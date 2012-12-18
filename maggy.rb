@@ -1,4 +1,4 @@
-class ImageMerger
+class Maggy
   attr_accessor :formula
   attr_accessor :num
   attr_accessor :delay
@@ -150,7 +150,7 @@ end
 
 
 
-class ImageMergerFormula
+class MaggyFormula
   attr_accessor :merger
 
   def self.ref_to_code(ref)
@@ -195,7 +195,7 @@ class ImageMergerFormula
 
 end
 
-class FrontSweepsOverBack < ImageMergerFormula
+class FrontSweepsOverBack < MaggyFormula
 
   def initialize
     @yes_match = :front
@@ -209,7 +209,7 @@ class FrontSweepsOverBack < ImageMergerFormula
 
 end
 
-class BackSweepsOverFront < ImageMergerFormula
+class BackSweepsOverFront < MaggyFormula
 
   def initialize
     @yes_match = :back
@@ -223,7 +223,7 @@ class BackSweepsOverFront < ImageMergerFormula
 
 end
 
-class FrontFillsBack < ImageMergerFormula
+class FrontFillsBack < MaggyFormula
   
   def initialize
     @yes_match = :front
@@ -241,7 +241,7 @@ class FrontFillsBack < ImageMergerFormula
 
 end
 
-class FrontFallsFromBack < ImageMergerFormula
+class FrontFallsFromBack < MaggyFormula
   
   def initialize
     @yes_match = :front
@@ -263,7 +263,7 @@ class FrontFallsFromBack < ImageMergerFormula
 
 end
 
-class FrontEmptiesFromBack < ImageMergerFormula
+class FrontEmptiesFromBack < MaggyFormula
   
   def initialize
     @yes_match = :front
@@ -282,7 +282,7 @@ class FrontEmptiesFromBack < ImageMergerFormula
 
 end
 
-class PeelOffFront < ImageMergerFormula
+class PeelOffFront < MaggyFormula
   
   def initialize
     @yes_match = :front
@@ -301,7 +301,7 @@ class PeelOffFront < ImageMergerFormula
 
 end
 
-class FrontLevelExposesBack < ImageMergerFormula
+class FrontLevelExposesBack < MaggyFormula
 
   def initialize
     @yes_match = :back
