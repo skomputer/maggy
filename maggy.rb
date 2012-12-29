@@ -1,56 +1,79 @@
+require 'rmagick'
+require 'pry'
+
 class Maggy
-  attr_accessor :formula
+  @@output_path = "output"
+  @@debug = true
+
   attr_accessor :num
   attr_accessor :delay
-  attr_accessor :debug
-  attr_accessor :size
+  attr_accessor :width
+  attr_accessor :height
   attr_accessor :formula
+  attr_accessor :log
 
-  def initialize(front, back, outname, formula, num=10, delay=10)
-    @front = front
-    @back = back
+  def initialize(front, back, outname, num=10)
+    @front = Magick::Image.read(front).first
+    @back = Magick::Image.read(back).first
     @outname = outname
-    @formula = Kernel.const_get(formula).new
-    @formula.merger = self
     @num = num
-    @delay = delay
-
-    @debug = true
-    @size = "612x612"
-    @frames = []
+    @delay = 10
+    @output_paths = []
     @log = []
+
+    setup
+    ensure_dirs    
+    compute_width
+    compute_height
+  end
+  
+  def setup
+  end
+  
+  def compute_width
+    width = [@front.columns, @back.columns].min
   end
 
-  def use_background(type)
-    @background = case type
-      when :black then "0"
-      when :white then "1"
-      when :front then "u"
-      when :back then "v"
-      else "0"
-    end
+  def compute_height
+    height = [@front.rows, @back.rows].min
+  end  
+  
+  def output_path  
+    @@output_path
+  end
+  
+  def output_path=(path)
+    @@output_path = path
   end
 
-  def background
-    @background || "0"
+  def self.debug
+    @@debug
+  end
+  
+  def self.debug=(value)
+    @@debug = value
   end
     
   def create_frames
     ensure_dirs
-    create_first_frame
-
-    (1..@num).to_a.each do |i|
-      run_command "convert #{@front} #{@back} -fx \"#{get_formula(i)}\" #{frame_path(i)}"
-      @frames[i] = frame_path(i)
+    create_zero_frame
+    (1..num).to_a.each do |i|
+      
+      self.class.run_command("convert #{@front.base_filename} #{@back.base_filename} -fx \"#{generate(i, num)}\" #{frame_output_path(i)}", @log)
+      @output_paths[i] = frame_output_path(i)
     end
   end
 
-  def create_first_frame
-    formula.create_first_frame
+  def zero_frame
+    :black
+  end
+
+  def create_zero_frame
+    send("create_#{zero_frame}_frame", 0)
   end
     
   def create_black_frame(num)
-    create_frame("-size #{size} xc:black", num)
+    create_frame("-size #{width}x#{height} xc:black", num)
   end
 
   def create_white_frame(num)
@@ -58,17 +81,17 @@ class Maggy
   end
 
   def create_front_frame(num)
-    create_frame(@front, num)
+    create_frame(@front.base_filename, num)
   end
 
   def create_back_frame(num)
-    create_frame(@back, num)
+    create_frame(@back.base_filename, num)
   end
 
   def create_frame(command, num)
     ensure_dirs
-    run_command "convert #{command} #{frame_path(num)}"
-    @frames[num] = frame_path(num)    
+    self.class.run_command("convert #{command} #{frame_output_path(num)}", @log)
+    @output_paths[num] = frame_output_path(num)    
   end
 
   def get_formula(frame)
@@ -101,15 +124,32 @@ class Maggy
     "(intensity >= #{min} && intensity <= #{max}) ? v : u"  
   end
 
+  def self.command?(command)
+    system("which #{ command} > /dev/null 2>&1")
+  end
+
   def create_animation
     ensure_dirs
     
-    run_command "convert -delay #{@delay} -loop 0 #{@frames.join(' ')} #{animation_path}"
+    self.class.run_command("convert -delay #{@delay} -loop 0 #{filename_list} #{animation_output_path}", @log)
   end
-  
+
+  def self.create_small_animation(outname, width=500, colors=64, log=nil)
+    return false unless animation_exists?(outname)
+    run_command("convert #{animation_output_path(outname)} -resize #{width} -colors #{colors} #{small_animation_output_path(outname)}", log)
+  end
+
+  def self.animation_exists?(outname)
+    File.exists?(animation_output_path(outname))
+  end
+
+  def filename_list
+    @output_paths.join(' ')
+  end
+    
   def write_log
     ensure_dirs
-    File.open(log_path, "w") do |file|
+    File.open(log_output_path, "w") do |file|
       @log.each do |line|
         file.write(line + "\n")
       end
@@ -123,35 +163,62 @@ class Maggy
     "%03i" % num
   end
 
-  def animation_path
-    "#{@outname}/#{@outname}.gif"
+  def self.project_output_path(outname)
+    @@output_path + "/" + outname
   end
 
-  def log_path
-    "#{@outname}/#{@outname}.log"
+  def project_output_path
+    self.class.project_output_path(@outname)
   end
 
-  def frame_path(num, format="jpg")
-    "#{@outname}/frames/#{@outname}-#{frame_num_str(num)}.#{format}"
+  def log_output_path
+    project_output_path + "/#{@outname}.log"
   end
 
+  def frames_output_path
+    project_output_path + "/frames"
+  end
+
+  def frame_output_path(num, format="jpg")
+    frames_output_path + "/#{@outname}-#{frame_num_str(num)}.#{format}"
+  end
+
+  def self.animation_output_path(outname)
+    project_output_path(outname) + "/#{outname}.gif"
+  end
+  
+  def animation_output_path
+    self.class.animation_output_path(@outname)
+  end
+
+  def self.small_animation_output_path(outname)
+    project_output_path(outname) + "/#{outname}_small.gif"  
+  end
+
+  def small_animation_output_path
+    self.class.small_animation_output_path(@outname)
+  end
+    
   def ensure_dirs
-    Dir.mkdir(@outname) unless File.directory?(@outname)
-    Dir.mkdir(@outname + "/frames") unless File.directory?(@outname + "/frames")
+    Dir.mkdir(output_path) unless File.directory?(output_path)
+    Dir.mkdir(project_output_path) unless File.directory?(project_output_path)
+    Dir.mkdir(frames_output_path) unless File.directory?(frames_output_path)
   end
 
-  def run_command(str)
+  def self.run_command(str, log=nil)
     system(str)
     print str + "\n" if debug == true
-    @log << str
+    log << str unless log.nil?
   end
 
 end
 
 
 
-class MaggyFormula
-  attr_accessor :merger
+class MaggyFormula < Maggy
+  attr_accessor :front_channel
+  attr_accessor :back_channel
+  attr_accessor :first_frame
 
   def self.ref_to_code(ref)
     case ref
@@ -163,20 +230,20 @@ class MaggyFormula
     end
   end  
 
-  def initialize
-    @yes_match = :back
-    @no_match = :black
+  def setup
+    @front_channel = :back
+    @back_channel = :black
     @buffer = 1 
   end
   
   def generate(frame, num)    
     min = range_min(frame, num, @buffer)
     max = range_max(frame, num, @buffer)
-    intensity_filter(min, max, self.class.ref_to_code(@yes_match), self.class.ref_to_code(@no_match))
+    intensity_filter(min, max, self.class.ref_to_code(@front_channel), self.class.ref_to_code(@back_channel))
   end
 
-  def create_first_frame
-    merger.create_black_frame(0)
+  def zero_frame
+    :black
   end
 
   def range_min(frame, num, buffer=1)
@@ -197,37 +264,38 @@ end
 
 class FrontSweepsOverBack < MaggyFormula
 
-  def initialize
-    @yes_match = :front
-    @no_match = :back
+  def setup
+    @front_channel = :front
+    @back_channel = :back
     @buffer = 1
   end
   
-  def create_first_frame
-    merger.create_back_frame(0)
+  def zero_frame
+    :back
   end
 
 end
 
 class BackSweepsOverFront < MaggyFormula
 
-  def initialize
-    @yes_match = :back
-    @no_match = :front
+  def setup
+    @front_channel = :back
+    @back_channel = :front
     @buffer = 1
   end
 
-  def create_first_frame
-    merger.create_front_frame(0)
+  def zero_frame
+    :front
   end
+
 
 end
 
 class FrontFillsBack < MaggyFormula
   
-  def initialize
-    @yes_match = :front
-    @no_match = :back
+  def setup
+    @front_channel = :front
+    @back_channel = :back
     @buffer = 0
   end
 
@@ -235,17 +303,17 @@ class FrontFillsBack < MaggyFormula
     0
   end
 
-  def create_first_frame
-    merger.create_back_frame(0)
+  def zero_frame
+    :back
   end
 
 end
 
 class FrontFallsFromBack < MaggyFormula
   
-  def initialize
-    @yes_match = :front
-    @no_match = :back
+  def setup
+    @front_channel = :front
+    @back_channel = :back
     @buffer = 0
   end
 
@@ -257,60 +325,85 @@ class FrontFallsFromBack < MaggyFormula
     (num-frame)/num.to_f
   end
 
-  def create_first_frame
-    merger.create_front_frame(0)
+  def zero_frame
+    :front
   end
+
+end
+
+class FrontGrowsDownBack < MaggyFormula
+  
+  def setup
+    @front_channel = :front
+    @back_channel = :back
+    @buffer = 0
+  end
+
+  def range_min(frame, num, buffer=1)
+    (num-frame)/num.to_f
+  end
+
+  def range_max(frame, num, buffer=1)
+    1
+  end
+
+  def zero_frame
+    :back
+  end
+
 
 end
 
 class FrontEmptiesFromBack < MaggyFormula
   
-  def initialize
-    @yes_match = :front
-    @no_match = :back
+  def setup
+    @front_channel = :front
+    @back_channel = :back
   end
 
   def generate(frame, num)    
     max = (num-frame)/num.to_f
     min = 0
-    intensity_filter(min, max, self.class.ref_to_code(@yes_match), self.class.ref_to_code(@no_match))
+    intensity_filter(min, max, self.class.ref_to_code(@front_channel), self.class.ref_to_code(@back_channel))
   end
 
-  def create_first_frame
-    merger.create_front_frame(0)
+  def zero_frame
+    :front
   end
+
 
 end
 
-class PeelOffFront < MaggyFormula
+class BackFillsFront < MaggyFormula
   
-  def initialize
-    @yes_match = :front
-    @no_match = :back
+  def setup
+    @front_channel = :front
+    @back_channel = :back
   end
 
   def generate(frame, num)    
     max = 1
     min = frame/num.to_f
-    intensity_filter(min, max, self.class.ref_to_code(@yes_match), self.class.ref_to_code(@no_match))
+    intensity_filter(min, max, self.class.ref_to_code(@front_channel), self.class.ref_to_code(@back_channel))
   end
 
-  def create_first_frame
-    merger.create_front_frame(0)
+  def zero_frame
+    :front
   end
+
 
 end
 
 class FrontLevelExposesBack < MaggyFormula
 
-  def initialize
-    @yes_match = :back
-    @no_match = :black
+  def setup
+    @front_channel = :back
+    @back_channel = :black
     @buffer = 1
   end
 
-  def create_first_frame
-    merger.create_black_frame(0)
+  def zero_frame
+    :black
   end
   
 end
